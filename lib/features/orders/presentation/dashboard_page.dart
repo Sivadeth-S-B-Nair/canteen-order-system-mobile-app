@@ -8,8 +8,7 @@ import '../domain/order_model.dart';
 import '../providers/location_provide.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../auth/domain/auth_state.dart';
-import '../../../shared/socket/socket_service.dart';
-import '../../../core/storage/secure_storage.dart';
+// import '../../../shared/socket/socket_service.dart';
 import '../../../shared/widgets/status_badge.dart';
 import '../../../shared/widgets/order_items_list.dart';
 
@@ -465,7 +464,7 @@ class _AccuracyBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(

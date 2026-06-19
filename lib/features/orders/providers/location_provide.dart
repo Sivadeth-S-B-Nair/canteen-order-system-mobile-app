@@ -1,11 +1,9 @@
 import 'dart:async';
-
-// import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
-import '../../orders/providers/orders_provider.dart';
 import '../../../shared/socket/socket_service.dart';
+import '../../orders/providers/orders_provider.dart';
 
 class LocationState {
   final bool isTracking;
@@ -14,45 +12,52 @@ class LocationState {
   final int pingCount;
 
   const LocationState({
-    this.isTracking=false,
-    this.lastPosition,
+    this.isTracking = false,
+    this.lastPosition,  
     this.error,
-    this.pingCount= 0
+    this.pingCount = 0,
   });
 
   LocationState copyWith({
     bool? isTracking,
     Position? lastPosition,
+    bool clearError = false,
     String? error,
-    int? pingCount
-  })=>LocationState(
+    int? pingCount,
+  }) => LocationState(
     isTracking: isTracking ?? this.isTracking,
     lastPosition: lastPosition ?? this.lastPosition,
-    error: error ?? this.error,
-    pingCount: pingCount ?? this.pingCount
+    error: clearError ? null : (error ?? this.error),
+    pingCount: pingCount ?? this.pingCount,
   );
 }
 
-class LocationNotifier extends StateNotifier<LocationState>{
-  final SocketService _socket;
-
+class LocationNotifier extends Notifier<LocationState> {
   StreamSubscription<Position>? _positionStream;
 
-  LocationNotifier(this._socket) : super(const LocationState());
+  @override
+  LocationState build() {
+    ref.onDispose(() {
+      _positionStream?.cancel();
+    });
+    return const LocationState();
+  }
 
-  Future<bool> requestPermissions() async{
-    var status=await Permission.locationWhenInUse.request();
-    if(!status.isGranted){
-      state=state.copyWith(
-        error: "Location permission denied. Please enable in settings"
+  // SocketService get _socket => ref.read(socketServiceProvider);
+
+  Future<bool> requestPermissions() async {
+    var status = await Permission.locationWhenInUse.request();
+    if (!status.isGranted) {
+      state = state.copyWith(
+        error: 'Location permission denied. Please enable in settings.',
       );
       return false;
     }
 
-    status=await Permission.locationAlways.request();
-    if(!status.isGranted){
-      state=state.copyWith(
-        error: "Background location  required for tracking during delivery"
+    status = await Permission.locationAlways.request();
+    if (!status.isGranted) {
+      state = state.copyWith(
+        error: 'Background location required for tracking during delivery.',
       );
       return false;
     }
@@ -60,67 +65,67 @@ class LocationNotifier extends StateNotifier<LocationState>{
     return true;
   }
 
-  Future<void> startTracking(int orderId) async{
-    if(state.isTracking) return;
+  Future<void> startTracking(int orderId) async {
+    if (state.isTracking) return;
 
-    final hasPermission=await requestPermissions();
+    final hasPermission = await requestPermissions();
+    if (!hasPermission) return;
 
-    if(!hasPermission) return;
+    state = state.copyWith(isTracking: true,clearError: true, pingCount: 0);
 
-    state=state.copyWith(isTracking: true,error: null,pingCount: 0);
-
-    const locationSettings=LocationSettings(
+    const locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 10, //metre
+      distanceFilter: 10,
     );
+
+    final socket = ref.read(socketServiceProvider);
 
     _positionStream = Geolocator.getPositionStream(
-      locationSettings: locationSettings
+      locationSettings: locationSettings,
     ).listen(
-      (position)=>_onPositionUpdate(position,orderId),
-      onError: _onPositionError
+      (position) => _onPositionUpdate(position, orderId, socket),
+      onError: _onPositionError,
     );
   }
 
-  void _onPositionUpdate(Position position,int orderId){
-    state=state.copyWith(
+  // [CHANGE] SocketService is now passed as a parameter rather than stored
+  // as a constructor-injected field, since Notifier has no constructor.
+  void _onPositionUpdate(Position position, int orderId, SocketService socket) {
+    state = state.copyWith(
       lastPosition: position,
-      pingCount: state.pingCount + 1
+      pingCount: state.pingCount + 1,
     );
 
-    _socket.emitLocationUpdate(latitude: position.latitude, longitude: position.longitude, orderId: orderId);
+    socket.emitLocationUpdate(
+      latitude: position.latitude,
+      longitude: position.longitude,
+      orderId: orderId,
+    );
   }
 
-  void _onPositionError(Object error){
-    final message=switch(error){
-      LocationServiceDisabledException()=>
-        "GPS is disabled. Please enable location services.",
-      PermissionDeniedException()=>
-        "Location permission denied.",
-      _=>"GPS error: ${error.toString()}"
+  void _onPositionError(Object error) {
+    final message = switch (error) {
+      LocationServiceDisabledException() =>
+          'GPS is disabled. Please enable location services.',
+      PermissionDeniedException() =>
+          'Location permission denied.',
+      _ => 'GPS error: ${error.toString()}',
     };
-    state=state.copyWith(error: message);
+    state = state.copyWith(error: message);
   }
 
-  void stopTracking(){
+  void stopTracking() {
     _positionStream?.cancel();
-    _positionStream=null;
-    state=state.copyWith(
+    _positionStream = null;
+    state = state.copyWith(
       isTracking: false,
+      clearError: true,
       lastPosition: null,
-      pingCount: 0
+      pingCount: 0,
     );
-  }
-
-  @override
-  void dispose() {
-    _positionStream?.cancel();
-    super.dispose();
   }
 }
 
-final locationProvider=
-  StateNotifierProvider<LocationNotifier,LocationState>((ref){
-  final socket=ref.watch(socketServiceProvider);
-  return LocationNotifier(socket);
-});
+final locationProvider = NotifierProvider<LocationNotifier, LocationState>(
+  LocationNotifier.new,
+);

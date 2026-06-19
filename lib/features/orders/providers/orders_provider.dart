@@ -4,7 +4,7 @@ import '../domain/order_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../../shared/socket/socket_service.dart';
 
-final OrderRepositoryProvider = Provider<OrderRepository>((ref) {
+final orderRepositoryProvider = Provider<OrderRepository>((ref) {
   final dio = ref.watch(dioProvider);
   return OrderRepository(dio);
 });
@@ -64,7 +64,7 @@ class OrdersNotifier extends Notifier<OrdersState> {
   Future<void> fetchDeliveries() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
-      final repository = ref.read(OrderRepositoryProvider);
+      final repository = ref.read(orderRepositoryProvider);
       final orders = await repository.getMyDeliveries();
       state = state.copyWith(orders: orders, isLoading: false);
     } catch (e) {
@@ -74,7 +74,7 @@ class OrdersNotifier extends Notifier<OrdersState> {
 
   Future<void> markDelivered(int orderId) async {
     try {
-      final repository = ref.read(OrderRepositoryProvider);
+      final repository = ref.read(orderRepositoryProvider);
       final updated = await repository.markDelivered(orderId);
       final newOrders = state.orders
           .map((o) => o.id == orderId ? updated : o)

@@ -25,6 +25,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: notifier,
     redirect: notifier._redirect, // our auth guard
     routes: [
+      
       // ── Auth routes ─────────────────────────────────────────────────────
       GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
       // GoRoute(

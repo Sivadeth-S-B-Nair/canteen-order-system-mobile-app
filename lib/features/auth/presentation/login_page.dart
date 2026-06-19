@@ -15,7 +15,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final bool _showPassword = false;
+  bool _showPassword = false;
 
   @override
   void dispose() {
@@ -111,14 +111,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       labelText: "Password",
                       prefixIcon: const Icon(Icons.lock_outlined),
                       border: const OutlineInputBorder(),
-                      suffix: IconButton(
+                      suffixIcon: IconButton(
                         icon: Icon(
                           _showPassword
                               ? Icons.visibility_off_outlined
                               : Icons.visibility_outlined,
                         ),
                         onPressed: () =>
-                            setState(() => _showPassword == !_showPassword),
+                            setState(() => _showPassword = !_showPassword),
                       ),
                     ),
                     validator: (value) {

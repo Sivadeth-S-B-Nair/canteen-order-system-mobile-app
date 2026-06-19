@@ -44,19 +44,19 @@ class SocketService {
 
   void onNewDelivery(void Function(Map<String, dynamic> order) handler) {
     _socket?.on("new-delivery", (data) {
-      if (data is Map<String, dynamic>) handler(data);
+      if (data is Map) handler(Map<String, dynamic>.from(data));
     });
   }
 
   void onDeliveryDwell(void Function(Map<String, dynamic> data) handler) {
     _socket?.on('delivery-dwell', (data) {
-      if (data is Map<String, dynamic>) handler(data);
+      if (data is Map) handler(Map<String, dynamic>.from(data));
     });
   }
 
   void onOrderUpdated(void Function(Map<String, dynamic> order) handler) {
     _socket?.on("order-updated", (data) {
-      if (data is Map<String, dynamic>) handler(data);
+      if (data is Map) handler(Map<String, dynamic>.from(data));
     });
   }
 

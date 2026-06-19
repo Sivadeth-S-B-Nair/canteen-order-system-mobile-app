@@ -19,6 +19,7 @@ class AuthNotifier extends Notifier<AuthState> {
   }
 
   Future<void> _tryRestore() async {
+    state = const AuthState.loading();
     final repository = ref.read(authRepositoryProvider);
     final session = await repository.tryRestoreSession();
     if (session != null) {
@@ -42,6 +43,11 @@ class AuthNotifier extends Notifier<AuthState> {
       );
     } catch (e) {
       state = AuthState.error(e.toString());
+      Future.microtask(() {
+        if (state is AuthError) {
+          state = const AuthState.unauthenticated();
+        }
+      });
     }
   }
 
