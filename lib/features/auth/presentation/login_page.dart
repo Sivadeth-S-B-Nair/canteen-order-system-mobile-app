@@ -15,7 +15,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _showPassword = false;
+  final bool _showPassword = false;
 
   @override
   void dispose() {
@@ -122,8 +122,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       ),
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty)
+                      if (value == null || value.isEmpty) {
                         return "Password is required";
+                      }
                       return null;
                     },
                   ),
@@ -139,7 +140,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   FilledButton(
                     onPressed: isLoading ? null : _submit,
                     style: FilledButton.styleFrom(
-                      padding: EdgeInsets.symmetric(vertical: 16),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
                     child: isLoading
                         ? const SizedBox(

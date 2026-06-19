@@ -6,7 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/domain/auth_state.dart';
 import '../../features/auth/presentation/login_page.dart';
 // import '../../features/auth/presentation/forgot_password_page.dart';
-// import '../../features/orders/presentation/dashboard_page.dart';
+import '../../features/orders/presentation/dashboard_page.dart';
 // import '../../features/orders/presentation/orders_page.dart';
 import '../../features/auth/providers/auth_provider.dart';
 
@@ -26,10 +26,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: notifier._redirect, // our auth guard
     routes: [
       // ── Auth routes ─────────────────────────────────────────────────────
-      GoRoute(
-        path: '/login',
-        builder: (context, state) => const LoginPage(),
-      ),
+      GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
       // GoRoute(
       //   path: '/forgot-password',
       //   builder: (context, state) => const ForgotPasswordPage(),
@@ -37,19 +34,19 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // ── App shell (main nav) ─────────────────────────────────────────────
       // ShellRoute: wraps child routes with a common scaffold (nav bar).
-      // ShellRoute(
-      //   builder: (context, state, child) => AppShell(child: child),
-      //   routes: [
-      //     GoRoute(
-      //       path: '/dashboard',
-      //       builder: (context, state) => const DashboardPage(),
-      //     ),
-      //     GoRoute(
-      //       path: '/orders',
-      //       builder: (context, state) => const OrdersPage(),
-      //     ),
-      //   ],
-      // ),
+      ShellRoute(
+        builder: (context, state, child) => AppShell(child: child),
+        routes: [
+          GoRoute(
+            path: '/dashboard',
+            builder: (context, state) => const DashboardPage(),
+          ),
+          // GoRoute(
+          //   path: '/orders',
+          //   builder: (context, state) => const OrdersPage(),
+          // ),
+        ],
+      ),
     ],
   );
 });
@@ -77,20 +74,17 @@ class RouterNotifier extends ChangeNotifier {
   // This is equivalent to your middleware.js logic.
   String? _redirect(BuildContext context, GoRouterState state) {
     final authState = _ref.read(authProvider);
-    final isAuthRoute = state.matchedLocation == '/login' ||
+    final isAuthRoute =
+        state.matchedLocation == '/login' ||
         state.matchedLocation == '/forgot-password';
 
-    return authState.when(
-      initial: () => null, // still loading — don't redirect yet
-      loading: () => null,
-      authenticated: (user, _) =>
-          // Already logged in and trying to go to login? → dashboard
-          isAuthRoute ? '/dashboard' : null,
-      unauthenticated: () =>
-          // Not logged in and trying to access protected route? → login
-          isAuthRoute ? null : '/login',
-      error: (_) => isAuthRoute ? null : '/login',
-    );
+    return switch (authState) {
+      AuthInitial() => null,
+      AuthLoading() => null,
+      AuthAuthenticated() => isAuthRoute ? '/dashboard' : null,
+      AuthUnauthenticated() => isAuthRoute ? null : '/login',
+      AuthError() => isAuthRoute ? null : '/login',
+    };
   }
 }
 
