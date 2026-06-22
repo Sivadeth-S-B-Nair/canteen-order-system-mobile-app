@@ -8,7 +8,7 @@ class ApiConstants {
   // Find your IP: run `ipconfig` (Windows) or `ifconfig` (Mac/Linux)
   // Example: static const baseUrl = 'http://192.168.1.42:3000';
   static const baseUrl =
-      'http://10.0.2.2:3000'; // 10.0.2.2 = Android emulator → host machine
+      'http://192.168.0.239:3000'; // 10.0.2.2 = Android emulator → host machine
 
   static const socketUrl = baseUrl;
 
