@@ -5,7 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/auth/domain/auth_state.dart';
 import '../../features/auth/presentation/login_page.dart';
-// import '../../features/auth/presentation/forgot_password_page.dart';
+import '../../features/auth/presentation/forgot_password_page.dart';
+import '../../features/auth/presentation/reset_password_page.dart';
 import '../../features/orders/presentation/dashboard_page.dart';
 // import '../../features/orders/presentation/orders_page.dart';
 import '../../features/auth/providers/auth_provider.dart';
@@ -25,13 +26,22 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: notifier,
     redirect: notifier._redirect, // our auth guard
     routes: [
-      
       // ── Auth routes ─────────────────────────────────────────────────────
       GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
-      // GoRoute(
-      //   path: '/forgot-password',
-      //   builder: (context, state) => const ForgotPasswordPage(),
-      // ),
+      GoRoute(
+        path: '/forgot-password',
+        builder: (context, state) => const ForgotPasswordPage(),
+      ),
+      GoRoute(
+        path: '/reset-password',
+        builder: (context, state) {
+          // Extract token from query parameters
+          // Deep link:  deliveryagent://reset-password?token=abc123
+          // go_router sees path=/reset-password, queryParameters={token: abc123}
+          final token = state.uri.queryParameters['token'] ?? '';
+          return ResetPasswordPage(token: token);
+        },
+      ),
 
       // ── App shell (main nav) ─────────────────────────────────────────────
       // ShellRoute: wraps child routes with a common scaffold (nav bar).
@@ -75,16 +85,18 @@ class RouterNotifier extends ChangeNotifier {
   // This is equivalent to your middleware.js logic.
   String? _redirect(BuildContext context, GoRouterState state) {
     final authState = _ref.read(authProvider);
-    final isAuthRoute =
-        state.matchedLocation == '/login' ||
-        state.matchedLocation == '/forgot-password';
+    final location = state.matchedLocation;
+    final isPublicAuthRoute =
+        location == '/login' ||
+        location == '/forgot-password' ||
+        location == '/reset-password';
 
     return switch (authState) {
-      AuthInitial() => null,
-      AuthLoading() => null,
-      AuthAuthenticated() => isAuthRoute ? '/dashboard' : null,
-      AuthUnauthenticated() => isAuthRoute ? null : '/login',
-      AuthError() => isAuthRoute ? null : '/login',
+      AuthInitial()         => null,
+      AuthLoading()         => null,
+      AuthAuthenticated()   => isPublicAuthRoute ? '/dashboard' : null,
+      AuthUnauthenticated() => isPublicAuthRoute ? null : '/login',
+      AuthError()           => isPublicAuthRoute ? null : '/login',
     };
   }
 }

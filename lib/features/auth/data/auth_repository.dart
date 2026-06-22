@@ -27,8 +27,9 @@ class AuthRepository {
       throw response.data['message'] ?? 'Login failed';
     }
 
-    final user =
-        AgentUser.fromJson(response.data['user'] as Map<String, dynamic>);
+    final user = AgentUser.fromJson(
+      response.data['user'] as Map<String, dynamic>,
+    );
     final accessToken = response.data['accessToken'] as String;
 
     // Verify this is actually a delivery agent — reject other roles
@@ -70,8 +71,9 @@ class AuthRepository {
       final newToken = response.data['accessToken'] as String;
       await SecureStorage.saveAccessToken(newToken);
 
-      final user =
-          AgentUser.fromJson(jsonDecode(userJson) as Map<String, dynamic>);
+      final user = AgentUser.fromJson(
+        jsonDecode(userJson) as Map<String, dynamic>,
+      );
       return (user: user, accessToken: newToken);
     } catch (_) {
       await SecureStorage.clearAll();
@@ -86,6 +88,34 @@ class AuthRepository {
     );
     if (response.statusCode != 200) {
       throw response.data['message'] ?? 'Failed to send reset email';
+    }
+  }
+
+  Future<void> validateResetToken(String token) async {
+    final response = await _dio.get(
+      ApiConstants.resetPasswordValidate,
+      queryParameters: {"token": token},
+    );
+    if (response.statusCode != 200) {
+      throw response.data["message"] ?? "Invalid or expired reset link";
+    }
+  }
+
+  Future<void> resetPassword({
+    required String token,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    final response = await _dio.post(
+      ApiConstants.resetPassword,
+      data: {
+        "token": token,
+        "newPassword": newPassword,
+        "confirmPassword": confirmPassword,
+      },
+    );
+    if(response.statusCode!=200){
+      throw response.data["message"] ?? "Failed to reset password";
     }
   }
 }

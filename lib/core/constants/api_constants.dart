@@ -16,9 +16,13 @@ class ApiConstants {
   static const logout = '/api/auth/logout';
   static const refresh = '/api/auth/refresh';
   static const forgotPassword = '/api/auth/forgot-password';
+  static const resetPasswordValidate="/api/auth/reset-password/validate";
+  static const resetPassword="/api/auth/reset-password";
 
   static const myDeliveries = '/api/orders/my-deliveries';
 
   static String deliveryStatus(int orderId) =>
       '/api/orders/$orderId/delivery-status';
+
+  static const deepLinkScheme = 'deliveryagent';
 }

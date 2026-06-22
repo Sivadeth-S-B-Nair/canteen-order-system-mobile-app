@@ -6,11 +6,11 @@ import '../storage/secure_storage.dart';
 
 class AuthInterceptor extends Interceptor {
   final Dio
-      _dio; // reference to the same Dio instance (for making the refresh call)
+  _dio; // reference to the same Dio instance (for making the refresh call)
   bool _isRefreshing = false;
 
   final List<({RequestOptions options, ErrorInterceptorHandler handler})>
-      _queue = [];
+  _queue = [];
 
   AuthInterceptor(this._dio);
 
@@ -26,6 +26,8 @@ class AuthInterceptor extends Interceptor {
       ApiConstants.login,
       ApiConstants.refresh,
       ApiConstants.forgotPassword,
+      ApiConstants.resetPasswordValidate,
+      ApiConstants.resetPassword,
     ].any((route) => options.path.contains(route));
 
     if (!isPublic) {
@@ -50,11 +52,13 @@ class AuthInterceptor extends Interceptor {
     final response = err.response;
     final options = err.requestOptions;
 
-    final isExpired = response?.statusCode == 401 &&
+    final isExpired =
+        response?.statusCode == 401 &&
         response?.data['message'] == 'Token expired';
 
     // Don't retry public routes or already-retried requests
-    final isPublic = options.path.contains(ApiConstants.refresh) ||
+    final isPublic =
+        options.path.contains(ApiConstants.refresh) ||
         options.path.contains(ApiConstants.login);
 
     // options.extra is a Map<String, dynamic> we can use to store flags.
