@@ -8,7 +8,7 @@ import '../../features/auth/presentation/login_page.dart';
 import '../../features/auth/presentation/forgot_password_page.dart';
 import '../../features/auth/presentation/reset_password_page.dart';
 import '../../features/orders/presentation/dashboard_page.dart';
-// import '../../features/orders/presentation/orders_page.dart';
+import '../../features/orders/presentation/orders_page.dart';
 import '../../features/auth/providers/auth_provider.dart';
 
 // routerProvider: the router is itself a Riverpod provider so it can
@@ -52,10 +52,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/dashboard',
             builder: (context, state) => const DashboardPage(),
           ),
-          // GoRoute(
-          //   path: '/orders',
-          //   builder: (context, state) => const OrdersPage(),
-          // ),
+          GoRoute(
+            path: '/orders',
+            builder: (context, state) => const OrdersPage(),
+          ),
         ],
       ),
     ],
