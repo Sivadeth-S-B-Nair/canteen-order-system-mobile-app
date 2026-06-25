@@ -40,15 +40,21 @@ class OrdersState {
 class OrdersNotifier extends Notifier<OrdersState> {
   @override
   OrdersState build() {
-    _setupSocketListeners();
+    // NOTE: Socket listeners are NOT set up here because the socket has not
+    // been connected yet at build() time. Call connectAndListen() explicitly
+    // from the UI after the socket is connected (see DashboardPage).
     return const OrdersState();
   }
 
-  void _setupSocketListeners() {
+  /// Call this once after SocketService.connect() to wire up real-time events.
+  void setupSocketListeners() {
     final socket = ref.read(socketServiceProvider);
 
     socket.onNewDelivery((orderData) {
       final newOrder = Order.fromJson(orderData);
+      // Avoid duplicates if the server fires new-delivery for an order we
+      // already have (e.g. re-connect during an active delivery).
+      if (state.orders.any((o) => o.id == newOrder.id)) return;
       state = state.copyWith(orders: [newOrder, ...state.orders]);
     });
 

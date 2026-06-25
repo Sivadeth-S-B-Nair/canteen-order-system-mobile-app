@@ -8,7 +8,6 @@ import '../domain/order_model.dart';
 import '../providers/location_provide.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../auth/domain/auth_state.dart';
-// import '../../../shared/socket/socket_service.dart';
 import '../../../shared/widgets/status_badge.dart';
 import '../../../shared/widgets/order_items_list.dart';
 
@@ -20,39 +19,46 @@ class DashboardPage extends ConsumerStatefulWidget {
 }
 
 class _DashboardPageState extends ConsumerState<DashboardPage> {
-  // Track whether we've shown the dwell prompt for the current order
+  // Track whether we've shown the dwell prompt for the current order.
   int? _dwellShownForOrderId;
 
   @override
   void initState() {
     super.initState();
-    // Using addPostFrameCallback ensures this runs after the first build.
-    // Calling setState or provider reads inside initState can cause issues.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeConnections();
     });
   }
 
   Future<void> _initializeConnections() async {
-    // 1. Connect socket with current access token
     final authState = ref.read(authProvider);
-    authState.whenOrNull(
-      authenticated: (user, accessToken) {
-        ref.read(socketServiceProvider).connect(accessToken);
 
-        // 2. Set up dwell listener
-        ref.read(socketServiceProvider).onDeliveryDwell((data) {
+    authState.whenOrNull(
+      authenticated: (user, accessToken) async {
+        final socketService = ref.read(socketServiceProvider);
+
+        // 1. Connect the socket first.
+        socketService.connect(accessToken);
+
+        // 2. Wire up order-level socket listeners NOW that the socket exists.
+        //    The SocketService buffers these internally until the connection
+        //    handshake completes, so it is safe to call immediately after
+        //    connect() even before the server acknowledges the connection.
+        ref.read(ordersProvider.notifier).setupSocketListeners();
+
+        // 3. Set up the dwell listener on the same socket instance.
+        socketService.onDeliveryDwell((data) {
           final orderId = data['orderId'] as int?;
           if (orderId != null && orderId != _dwellShownForOrderId) {
             _dwellShownForOrderId = orderId;
             _showDwellDialog(orderId);
           }
         });
+
+        // 4. Fetch orders from the REST API.
+        await ref.read(ordersProvider.notifier).fetchDeliveries();
       },
     );
-
-    // 3. Fetch orders
-    await ref.read(ordersProvider.notifier).fetchDeliveries();
   }
 
   void _showDwellDialog(int orderId) {
@@ -89,6 +95,8 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
     try {
       ref.read(locationProvider.notifier).stopTracking();
       await ref.read(ordersProvider.notifier).markDelivered(orderId);
+      // Reset dwell guard so a fresh delivery can trigger it again.
+      _dwellShownForOrderId = null;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Order marked as delivered ✓')),
@@ -122,6 +130,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'logout') {
+                ref.read(locationProvider.notifier).stopTracking();
                 ref.read(authProvider.notifier).logout();
               }
             },
@@ -132,13 +141,12 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
         ],
       ),
       body: RefreshIndicator(
-        // Pull-to-refresh: a standard mobile pattern
         onRefresh: () => ref.read(ordersProvider.notifier).fetchDeliveries(),
         child: ordersState.isLoading
             ? const Center(child: CircularProgressIndicator())
             : activeOrder == null
-            ? _buildNoActiveDelivery()
-            : _buildActiveDelivery(activeOrder, locationState),
+                ? _buildNoActiveDelivery()
+                : _buildActiveDelivery(activeOrder, locationState),
       ),
     );
   }
@@ -152,9 +160,10 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
           const SizedBox(height: 16),
           Text(
             'No active delivery',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(color: Colors.grey[700]),
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(color: Colors.grey[700]),
           ),
           const SizedBox(height: 8),
           Text(
@@ -186,7 +195,9 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                       children: [
                         Text(
                           'Order #${order.id}',
-                          style: Theme.of(context).textTheme.titleLarge
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
                               ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         if (order.createdAt != null)
@@ -194,7 +205,9 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                             DateFormat('d MMM, h:mm a').format(
                               DateTime.parse(order.createdAt!).toLocal(),
                             ),
-                            style: Theme.of(context).textTheme.bodySmall
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
                                 ?.copyWith(color: Colors.grey[500]),
                           ),
                       ],
@@ -278,7 +291,8 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                   const SizedBox(height: 8),
                   Text(
                     'ETA: ${DateFormat('h:mm a').format(DateTime.parse(order.estimatedDeliveryTime!).toLocal())}',
-                    style: const TextStyle(color: Colors.grey, fontSize: 13),
+                    style:
+                        const TextStyle(color: Colors.grey, fontSize: 13),
                   ),
                 ],
               ],
@@ -297,9 +311,10 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
               children: [
                 Text(
                   'Location Sharing',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -339,9 +354,9 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                                 ),
                               ],
                             ),
-                            // Accuracy badge
                             _AccuracyBadge(
-                              accuracy: locationState.lastPosition!.accuracy,
+                              accuracy:
+                                  locationState.lastPosition!.accuracy,
                             ),
                           ],
                         ),
@@ -453,13 +468,13 @@ class _AccuracyBadge extends StatelessWidget {
     final color = isGood
         ? Colors.green
         : isFair
-        ? Colors.orange
-        : Colors.red;
+            ? Colors.orange
+            : Colors.red;
     final label = isGood
         ? 'good'
         : isFair
-        ? 'fair'
-        : 'poor';
+            ? 'fair'
+            : 'poor';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

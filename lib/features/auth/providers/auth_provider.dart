@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../data/auth_repository.dart';
 import '../domain/auth_state.dart';
-import '../../../core/network/dio_client.dart';
+// import '../../../core/network/dio_client.dart';
 
 // [FIX] dioProvider is now a plain Provider again, but its value is supplied
 // by an override in main.dart (see main.dart fix). DioClient.create() is
