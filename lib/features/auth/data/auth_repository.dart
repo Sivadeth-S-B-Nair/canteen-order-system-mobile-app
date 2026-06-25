@@ -1,6 +1,10 @@
 // lib/features/auth/data/auth_repository.dart
 
+import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:cookie_jar/cookie_jar.dart';
+import 'package:dio_cookie_manager/dio_cookie_manager.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../domain/auth_state.dart';
@@ -9,8 +13,6 @@ import 'dart:convert';
 class AuthRepository {
   final Dio _dio;
 
-  // The Dio instance is injected — this is dependency injection.
-  // It makes testing easy: pass a mock Dio in tests.
   AuthRepository(this._dio);
 
   Future<({AgentUser user, String accessToken})> login({
@@ -23,7 +25,6 @@ class AuthRepository {
     );
 
     if (response.statusCode != 200) {
-      // response.data is already parsed JSON (Map<String, dynamic>)
       throw response.data['message'] ?? 'Login failed';
     }
 
@@ -32,48 +33,72 @@ class AuthRepository {
     );
     final accessToken = response.data['accessToken'] as String;
 
-    // Verify this is actually a delivery agent — reject other roles
     if (user.role != 'delivery_agent') {
-      // Logout immediately so the cookie is cleared
       await _dio.post(ApiConstants.logout);
       throw 'This app is only for delivery agents.';
     }
 
-    // Persist to secure storage for next app launch
     await SecureStorage.saveAccessToken(accessToken);
     await SecureStorage.saveUser(jsonEncode(user.toJson()));
 
     return (user: user, accessToken: accessToken);
   }
 
+  // [FIX] logout() now also deletes the persisted cookie directory so that
+  // the refreshToken HttpOnly cookie is wiped from disk. If we only cleared
+  // SecureStorage, the cookie file would remain and the server would accept
+  // another refresh call even after a manual logout.
   Future<void> logout() async {
     try {
       await _dio.post(ApiConstants.logout);
     } catch (_) {
-      // Even if the server call fails, we still clear local storage
+      // Even if the server call fails, clear everything locally.
     } finally {
       await SecureStorage.clearAll();
+      await _deleteCookies();
     }
   }
 
-  // tryRestoreSession: called on app start to check if user is still logged in.
-  // We read from secure storage, then make one network call to refresh
-  // the access token (the refresh token lives in the HttpOnly cookie).
+  Future<void> _deleteCookies() async {
+    try {
+      final appDir = await getApplicationSupportDirectory();
+      final cookieDir = Directory('${appDir.path}/cookies');
+      if (cookieDir.existsSync()) {
+        cookieDir.deleteSync(recursive: true);
+      }
+    } catch (_) {
+      // Non-fatal — worst case the cookie expires naturally.
+    }
+  }
+
+  /// Called on every cold start. Reads the persisted user from secure storage,
+  /// then calls /refresh to exchange the HttpOnly cookie for a fresh access
+  /// token. The cookie now survives app restarts because PersistCookieJar
+  /// writes it to disk (see DioClient.create()).
   Future<({AgentUser user, String accessToken})?> tryRestoreSession() async {
     final userJson = await SecureStorage.readUser();
     if (userJson == null) return null;
 
     try {
-      // Try to get a fresh access token
       final response = await _dio.post(ApiConstants.refresh);
       if (response.statusCode != 200) return null;
 
       final newToken = response.data['accessToken'] as String;
       await SecureStorage.saveAccessToken(newToken);
 
-      final user = AgentUser.fromJson(
-        jsonDecode(userJson) as Map<String, dynamic>,
-      );
+      // Prefer fresh user data from the server when available.
+      AgentUser user;
+      if (response.data['user'] != null) {
+        user = AgentUser.fromJson(
+          response.data['user'] as Map<String, dynamic>,
+        );
+        await SecureStorage.saveUser(jsonEncode(user.toJson()));
+      } else {
+        user = AgentUser.fromJson(
+          jsonDecode(userJson) as Map<String, dynamic>,
+        );
+      }
+
       return (user: user, accessToken: newToken);
     } catch (_) {
       await SecureStorage.clearAll();
@@ -114,7 +139,7 @@ class AuthRepository {
         "confirmPassword": confirmPassword,
       },
     );
-    if(response.statusCode!=200){
+    if (response.statusCode != 200) {
       throw response.data["message"] ?? "Failed to reset password";
     }
   }

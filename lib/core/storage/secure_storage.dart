@@ -1,3 +1,5 @@
+// lib/core/storage/secure_storage.dart
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class SecureStorage {
@@ -19,5 +21,16 @@ class SecureStorage {
 
   static Future<String?> readUser() => _storage.read(key: _keyUser);
 
-  static Future<void> clearAll() => _storage.deleteAll();
+  // [FIX] clearAll() now only clears the secure-storage keys owned by this
+  // app (access token + user JSON). Cookie deletion is handled separately
+  // in AuthRepository.logout() via the PersistCookieJar, because SecureStorage
+  // has no knowledge of the cookie jar.
+  //
+  // Previously calling _storage.deleteAll() was safe because cookies were
+  // in-memory (no disk footprint). Now that we use PersistCookieJar we must
+  // explicitly delete the cookie directory on logout — see auth_repository.dart.
+  static Future<void> clearAll() async {
+    await _storage.delete(key: _keyAccessToken);
+    await _storage.delete(key: _keyUser);
+  }
 }

@@ -1,34 +1,26 @@
 // lib/core/network/auth_interceptor.dart
 
+import 'dart:async';
 import 'package:dio/dio.dart';
 import '../constants/api_constants.dart';
 import '../storage/secure_storage.dart';
 
 class AuthInterceptor extends Interceptor {
-  final Dio
-  _dio; // reference to the same Dio instance (for making the refresh call)
+  final Dio _dio;
   bool _isRefreshing = false;
 
-  final List<({RequestOptions options, ErrorInterceptorHandler handler})>
-  _queue = [];
+  final List<({RequestOptions options, Completer<String> completer})>
+      _pendingQueue = [];
 
   AuthInterceptor(this._dio);
 
-  // ── onRequest ──────────────────────────────────────────────────────────
-  // Runs BEFORE every request. We attach the access token here.
+  // ── onRequest ────────────────────────────────────────────────────────────
   @override
   Future<void> onRequest(
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    // Skip token attachment for public routes (login, refresh, forgot-password)
-    final isPublic = [
-      ApiConstants.login,
-      ApiConstants.refresh,
-      ApiConstants.forgotPassword,
-      ApiConstants.resetPasswordValidate,
-      ApiConstants.resetPassword,
-    ].any((route) => options.path.contains(route));
+    final isPublic = _isPublicRoute(options.path);
 
     if (!isPublic) {
       final token = await SecureStorage.readAccessToken();
@@ -40,82 +32,143 @@ class AuthInterceptor extends Interceptor {
     handler.next(options);
   }
 
-  // ── onError ────────────────────────────────────────────────────────────
-  // Runs when any request gets a non-2xx response.
-  // We intercept 401 "Token expired" and refresh silently.
 
+  @override
+  Future<void> onResponse(
+    Response response,
+    ResponseInterceptorHandler handler,
+  ) async {
+    if (_shouldRefresh(response.statusCode, response.data, response.requestOptions)) {
+      final newToken = await _refreshOrClear();
+      if (newToken == null) {
+        // Refresh failed — pass the 401 through; router will redirect to /login
+        return handler.next(response);
+      }
+      // Retry original request with fresh token
+      try {
+        final retried = await _retry(response.requestOptions, newToken);
+        return handler.resolve(retried);
+      } catch (e) {
+        return handler.next(response);
+      }
+    }
+    handler.next(response);
+  }
+
+  // ── onError ──────────────────────────────────────────────────────────────
+  // This fires for network failures or status codes ≥ 500 (rejected by
+  // validateStatus). Kept in sync with onResponse logic for safety.
   @override
   Future<void> onError(
     DioException err,
     ErrorInterceptorHandler handler,
   ) async {
     final response = err.response;
-    final options = err.requestOptions;
-
-    final isExpired =
-        response?.statusCode == 401 &&
-        response?.data['message'] == 'Token expired';
-
-    // Don't retry public routes or already-retried requests
-    final isPublic =
-        options.path.contains(ApiConstants.refresh) ||
-        options.path.contains(ApiConstants.login);
-
-    // options.extra is a Map<String, dynamic> we can use to store flags.
-    final alreadyRetried = options.extra['_retry'] == true;
-
-    if (isExpired && !isPublic && !alreadyRetried) {
-      if (_isRefreshing) {
-        // A refresh is already happening. Add this request to the queue.
-        // It will be retried when the refresh completes.
-        _queue.add((options: options, handler: handler));
-        return;
+    if (response != null &&
+        _shouldRefresh(response.statusCode, response.data, err.requestOptions)) {
+      final newToken = await _refreshOrClear();
+      if (newToken == null) {
+        return handler.reject(err);
       }
-
-      _isRefreshing = true;
-
       try {
-        // Call the refresh endpoint. Notice we use _dio directly,
-        // not through the interceptor (would cause infinite loop).
-        final refreshResponse = await _dio.post(
-          ApiConstants.refresh,
-          options: Options(extra: {'_retry': true}), // prevents re-intercepting
-        );
-
-        final newToken = refreshResponse.data['accessToken'] as String;
-        await SecureStorage.saveAccessToken(newToken);
-
-        // Retry all queued requests with the new token
-        for (final queued in _queue) {
-          queued.options.headers['Authorization'] = 'Bearer $newToken';
-          queued.options.extra['_retry'] = true;
-          try {
-            final retryResponse = await _dio.fetch(queued.options);
-            queued.handler.resolve(retryResponse);
-          } catch (e) {
-            queued.handler.reject(e as DioException);
-          }
-        }
-        _queue.clear();
-
-        // Retry the original request
-        options.headers['Authorization'] = 'Bearer $newToken';
-        options.extra['_retry'] = true;
-        final retryResponse = await _dio.fetch(options);
-        handler.resolve(retryResponse);
-      } catch (refreshError) {
-        // Refresh token is also expired — force logout.
-        // We clear storage here; the authProvider will react and redirect.
-        _queue.clear();
-        await SecureStorage.clearAll();
-        handler.reject(err); // propagate the 401 up to the caller
-      } finally {
-        _isRefreshing = false;
+        final retried = await _retry(err.requestOptions, newToken);
+        return handler.resolve(retried);
+      } catch (e) {
+        return handler.reject(err);
       }
-      return;
+    }
+    handler.next(err);
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  bool _isPublicRoute(String path) => [
+        ApiConstants.login,
+        ApiConstants.refresh,
+        ApiConstants.forgotPassword,
+        ApiConstants.resetPasswordValidate,
+        ApiConstants.resetPassword,
+      ].any((route) => path.contains(route));
+
+  bool _shouldRefresh(int? statusCode, dynamic data, RequestOptions options) {
+    final isExpired =
+        statusCode == 401 &&
+        data is Map &&
+        data['message'] == 'Token expired';
+    final isAlreadyRetried = options.extra['_retry'] == true;
+    final isPublic = _isPublicRoute(options.path);
+    return isExpired && !isAlreadyRetried && !isPublic;
+  }
+
+  /// Performs the token refresh. Returns the new access token on success,
+  /// or null if the refresh token is also expired (forces logout).
+  /// Uses a queue so concurrent requests don't each trigger their own refresh.
+  Future<String?> _refreshOrClear() async {
+    if (_isRefreshing) {
+      // Another refresh is in flight — wait for it to complete.
+      final completer = Completer<String>();
+      _pendingQueue.add((
+        options: RequestOptions(path: ''), // placeholder; only completer matters
+        completer: completer,
+      ));
+      try {
+        return await completer.future;
+      } catch (_) {
+        return null;
+      }
     }
 
-    // For all other errors, pass them through unchanged
-    handler.next(err);
+    _isRefreshing = true;
+    try {
+      final refreshResponse = await _dio.post(
+        ApiConstants.refresh,
+        options: Options(extra: {'_retry': true}),
+      );
+
+      if (refreshResponse.statusCode != 200) {
+        await SecureStorage.clearAll();
+        _rejectPending();
+        return null;
+      }
+
+      final newToken = refreshResponse.data['accessToken'] as String;
+      await SecureStorage.saveAccessToken(newToken);
+      _resolvePending(newToken);
+      return newToken;
+    } catch (_) {
+      await SecureStorage.clearAll();
+      _rejectPending();
+      return null;
+    } finally {
+      _isRefreshing = false;
+    }
+  }
+
+  Future<Response> _retry(RequestOptions options, String newToken) {
+    final retryOptions = options.copyWith(
+      headers: {
+        ...options.headers,
+        'Authorization': 'Bearer $newToken',
+      },
+      extra: {
+        ...options.extra,
+        '_retry': true,
+      },
+    );
+    return _dio.fetch(retryOptions);
+  }
+
+  void _resolvePending(String token) {
+    for (final entry in _pendingQueue) {
+      entry.completer.complete(token);
+    }
+    _pendingQueue.clear();
+  }
+
+  void _rejectPending() {
+    for (final entry in _pendingQueue) {
+      entry.completer.completeError('Refresh failed');
+    }
+    _pendingQueue.clear();
   }
 }
